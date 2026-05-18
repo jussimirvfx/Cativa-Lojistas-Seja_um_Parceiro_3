@@ -1,10 +1,11 @@
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&family=Montserrat:ital,wght@1,400;1,600&display=swap');
+
 @font-face {
   font-family: 'Polymath';
   src: url('https://frwfcibbvbj5zog7.public.blob.vercel-storage.com/fonts/polymathdispdemo-regular-1778240888919.otf') format('opentype');
   font-weight: normal;
   font-style: normal;
 }
-@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&family=Montserrat:ital,wght@1,400;1,600&display=swap');
 @import "tailwindcss";
 
 @theme {
@@ -26,4 +27,22 @@
   h1, h2, h3, h4, .font-serif {
     @apply font-serif tracking-normal;
   }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(100%); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.animate-float {
+  animation: float 4s ease-in-out infinite 0.5s;
+}
+
+.animate-slideInRight {
+  animation: slideInRight 0.4s ease-out;
 }
