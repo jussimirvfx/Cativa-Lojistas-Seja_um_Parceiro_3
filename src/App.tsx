@@ -566,6 +566,23 @@ type LeadFormData = {
   tempoCnpj: string;
 };
 
+type FormFieldName =
+  | 'nome'
+  | 'email'
+  | 'telefone'
+  | 'cidade'
+  | 'estado'
+  | 'nomeLoja'
+  | 'cnpj'
+  | 'instagram'
+  | 'marcasAtuais'
+  | 'storeType'
+  | 'hasPhysicalStore'
+  | 'segments'
+  | 'tempoCnpj';
+
+type FormErrors = Partial<Record<FormFieldName, string>>;
+
 type LeadScoreItem = {
   question: string;
   answer: string;
@@ -873,13 +890,28 @@ const PartnershipForm = () => {
   });
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submissionStatus, setSubmissionStatus] = useState<'qualified' | 'disqualified' | null>(null);
+  const [formErrors, setFormErrors] = useState<FormErrors>({});
 
   const updateFormData = <K extends keyof LeadFormData>(key: K, value: LeadFormData[K]) => {
     setFormData((current) => ({ ...current, [key]: value }));
+    if (key !== 'pais') {
+      clearFieldError(key as FormFieldName);
+    }
+  };
+
+  const clearFieldError = (field: FormFieldName) => {
+    setFormErrors((current) => {
+      if (!current[field]) return current;
+      const next = { ...current };
+      delete next[field];
+      return next;
+    });
   };
 
   const handleSegmentChange = (event: ChangeEvent<HTMLInputElement>) => {
     const { value, checked } = event.target;
+    clearFieldError('segments');
     setFormData((current) => ({
       ...current,
       segments: checked
@@ -888,45 +920,120 @@ const PartnershipForm = () => {
     }));
   };
 
+  const fieldBaseClass = 'w-full px-4 py-3 rounded-xl border focus:ring-4 outline-none transition-all';
+
+  const getFieldClassName = (field: FormFieldName, extraClasses = '') => {
+    const errorClasses = formErrors[field]
+      ? 'border-red-500 bg-red-50/50 focus:border-red-500 focus:ring-red-500/15'
+      : 'border-stone-200 focus:border-brand-primary focus:ring-brand-primary/10';
+
+    return `${fieldBaseClass} ${errorClasses} ${extraClasses}`.trim();
+  };
+
+  const getChoiceClassName = (field: FormFieldName) => {
+    return formErrors[field]
+      ? 'border-red-500 bg-red-50/50'
+      : 'border-stone-200 hover:border-brand-primary';
+  };
+
+  const renderFieldError = (field: FormFieldName) => {
+    if (!formErrors[field]) return null;
+    return (
+      <p className="mt-2 text-sm font-semibold text-red-600" id={`${field}-error`}>
+        {formErrors[field]}
+      </p>
+    );
+  };
+
+  const focusField = (field: FormFieldName) => {
+    requestAnimationFrame(() => {
+      const fieldElement = document.querySelector<HTMLElement>(`[data-field="${field}"]`);
+      if (!fieldElement) return;
+
+      fieldElement.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center'
+      });
+
+      const input = fieldElement.querySelector<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>('input, select, textarea');
+      setTimeout(() => input?.focus(), 450);
+    });
+  };
+
+  const validateForm = () => {
+    const errors: FormErrors = {};
+    const order: FormFieldName[] = [
+      'nome',
+      'nomeLoja',
+      'telefone',
+      'email',
+      'cnpj',
+      'cidade',
+      'estado',
+      'instagram',
+      'marcasAtuais',
+      'storeType',
+      'tempoCnpj',
+      'hasPhysicalStore',
+      'segments'
+    ];
+
+    if (!formData.nome.trim()) errors.nome = 'Informe seu nome completo.';
+    if (!formData.nomeLoja.trim()) errors.nomeLoja = 'Informe o nome da loja.';
+
+    if (!formData.telefone.trim()) {
+      errors.telefone = 'Informe o WhatsApp com DDD.';
+    } else {
+      const validacaoTelefone = validarTelefoneCompleto(formData.telefone);
+      if (!validacaoTelefone.valido) {
+        errors.telefone = `Telefone inválido: ${validacaoTelefone.erro}.`;
+      }
+    }
+
+    if (!formData.email.trim()) {
+      errors.email = 'Informe seu e-mail.';
+    } else if (!validarEmail(formData.email)) {
+      errors.email = 'Informe um e-mail válido.';
+    }
+
+    if (!formData.cnpj.trim()) {
+      errors.cnpj = 'Informe o CNPJ.';
+    } else if (!validarCnpj(formData.cnpj)) {
+      errors.cnpj = 'CNPJ inválido: informe os 14 dígitos do CNPJ.';
+    }
+
+    if (!formData.cidade.trim()) errors.cidade = 'Informe a cidade.';
+    if (!formData.estado.trim()) errors.estado = 'Selecione o estado.';
+    if (!formData.instagram.trim()) errors.instagram = 'Informe o Instagram da loja.';
+    if (!formData.marcasAtuais.trim()) errors.marcasAtuais = 'Informe as marcas que vende hoje.';
+    if (!formData.storeType) errors.storeType = 'Selecione o tipo da loja.';
+    if (!formData.tempoCnpj) errors.tempoCnpj = 'Selecione o tempo de CNPJ.';
+    if (!formData.hasPhysicalStore) errors.hasPhysicalStore = 'Selecione se possui loja física.';
+    if (formData.segments.length === 0) errors.segments = 'Selecione pelo menos um segmento.';
+
+    setFormErrors(errors);
+    const firstError = order.find((field) => errors[field]);
+    if (firstError) focusField(firstError);
+
+    return !firstError;
+  };
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
 
-    if (
-      !formData.nome.trim() ||
-      !formData.email.trim() ||
-      !formData.telefone.trim() ||
-      !formData.cidade.trim() ||
-      !formData.estado.trim() ||
-      !formData.nomeLoja.trim() ||
-      !formData.cnpj.trim() ||
-      !formData.instagram.trim() ||
-      !formData.marcasAtuais.trim() ||
-      !formData.storeType ||
-      !formData.hasPhysicalStore ||
-      !formData.tempoCnpj ||
-      formData.segments.length === 0
-    ) {
-      alert('Preencha todos os campos obrigatórios.');
-      return;
-    }
-
-    if (!validarEmail(formData.email)) {
-      alert('Informe um e-mail válido.');
-      return;
-    }
-
-    const validacaoTelefone = validarTelefoneCompleto(formData.telefone);
-    if (!validacaoTelefone.valido) {
-      alert(`Telefone inválido: ${validacaoTelefone.erro}`);
-      return;
-    }
-
-    if (!validarCnpj(formData.cnpj)) {
-      alert('CNPJ inválido: informe os 14 dígitos do CNPJ.');
+    if (!validateForm()) {
       return;
     }
 
     const leadScoreDetails = calculateLeadScore(formData);
+
+    if (leadScoreDetails.disqualified) {
+      console.log('Lead desqualificado pela curadoria:', leadScoreDetails);
+      setSubmissionStatus('disqualified');
+      setIsSubmitted(true);
+      return;
+    }
+
     const leadData = {
       name: formData.nome.trim(),
       email: formData.email.trim().toLowerCase(),
@@ -967,6 +1074,7 @@ const PartnershipForm = () => {
       }
 
       await enviarParaWebhook(leadData);
+      setSubmissionStatus('qualified');
       setIsSubmitted(true);
     } catch (error) {
       console.error('Erro ao enviar lead para Meta:', error);
@@ -1001,165 +1109,215 @@ const PartnershipForm = () => {
           <div className="bg-white rounded-[2.5rem] shadow-2xl p-8 md:p-16 border border-stone-100">
             {isSubmitted ? (
               <div className="min-h-[360px] flex flex-col items-center justify-center text-center gap-6">
-                <div className="w-20 h-20 rounded-full bg-[#EFDE9D]/30 text-[#7F8080] flex items-center justify-center">
-                  <CheckCircle2 size={42} />
-                </div>
-                <div>
-                  <h3 className="text-3xl md:text-4xl font-serif font-bold text-[#7F8080] mb-3">
-                    Obrigado pelo cadastro!
-                  </h3>
-                  <p className="text-[#7F8080]/75 text-lg max-w-xl mx-auto">
-                    Recebemos suas informações. Nossa equipe entrará em contato em breve para falar sobre a parceria com o Grupo Cativa.
-                  </p>
-                </div>
+                {submissionStatus === 'disqualified' ? (
+                  <>
+                    <div className="w-36 h-36 rounded-full bg-red-50 text-red-600 flex items-center justify-center">
+                      <X size={92} strokeWidth={2.6} />
+                    </div>
+                    <p className="text-[#7F8080]/80 text-lg max-w-2xl mx-auto whitespace-pre-line leading-relaxed">
+                      {`Infelizmente, informamos que o seu cadastro não foi selecionado para avançarmos neste momento. 
+
+Como nosso processo de entrada passa por uma curadoria interna, não conseguiremos seguir com a parceria agora. 
+
+Agradecemos o seu interesse na nossa marca e desejamos muito sucesso!`}
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <div className="w-36 h-36 rounded-full bg-green-50 text-green-600 flex items-center justify-center">
+                      <CheckCircle2 size={92} strokeWidth={2.6} />
+                    </div>
+                    <div>
+                      <h3 className="text-3xl md:text-4xl font-serif font-bold text-[#7F8080] mb-3">
+                        Obrigado pelo cadastro!
+                      </h3>
+                      <p className="text-[#7F8080]/75 text-lg max-w-xl mx-auto">
+                        Recebemos suas informações. Nossa equipe entrará em contato em breve para falar sobre a parceria com o Grupo Cativa.
+                      </p>
+                    </div>
+                  </>
+                )}
               </div>
             ) : (
-              <form onSubmit={handleSubmit} className="space-y-8">
+              <form onSubmit={handleSubmit} className="space-y-8" noValidate>
                 <div className="grid md:grid-cols-2 gap-6">
-                  <div>
+                  <div data-field="nome">
                     <label className="text-sm font-bold text-[#7F8080] block mb-2">{wrapSpecialChars("Nome completo *", "font-semibold")}</label>
                     <input
                       type="text"
                       required
                       value={formData.nome}
                       onChange={(e) => updateFormData('nome', e.target.value)}
-                      className="w-full px-4 py-3 rounded-xl border border-stone-200 focus:border-brand-primary focus:ring-4 focus:ring-brand-primary/10 outline-none transition-all"
+                      className={getFieldClassName('nome')}
+                      aria-invalid={!!formErrors.nome}
+                      aria-describedby={formErrors.nome ? 'nome-error' : undefined}
                     />
+                    {renderFieldError('nome')}
                   </div>
-                  <div>
+                  <div data-field="nomeLoja">
                     <label className="text-sm font-bold text-[#7F8080] block mb-2">Nome da Loja *</label>
                     <input
                       type="text"
                       required
                       value={formData.nomeLoja}
                       onChange={(e) => updateFormData('nomeLoja', e.target.value)}
-                      className="w-full px-4 py-3 rounded-xl border border-stone-200 focus:border-brand-primary focus:ring-4 focus:ring-brand-primary/10 outline-none transition-all"
+                      className={getFieldClassName('nomeLoja')}
+                      aria-invalid={!!formErrors.nomeLoja}
+                      aria-describedby={formErrors.nomeLoja ? 'nomeLoja-error' : undefined}
                     />
+                    {renderFieldError('nomeLoja')}
                   </div>
                 </div>
 
                 <div className="grid md:grid-cols-3 gap-6">
-                  <div>
+                  <div data-field="telefone">
                     <label className="text-sm font-bold text-[#7F8080] block mb-2">{wrapSpecialChars("WhatsApp com DDD *")}</label>
                     <input
                       type="tel"
                       required
                       value={formData.telefone}
                       onChange={(e) => updateFormData('telefone', telefoneMask(e.target.value))}
-                      className="w-full px-4 py-3 rounded-xl border border-stone-200 focus:border-brand-primary focus:ring-4 focus:ring-brand-primary/10 outline-none transition-all"
+                      className={getFieldClassName('telefone')}
                       placeholder="(11) 99999-9999"
                       inputMode="tel"
                       maxLength={15}
+                      aria-invalid={!!formErrors.telefone}
+                      aria-describedby={formErrors.telefone ? 'telefone-error' : undefined}
                     />
+                    {renderFieldError('telefone')}
                   </div>
-                  <div>
+                  <div data-field="email">
                     <label className="text-sm font-bold text-[#7F8080] block mb-2">E-mail *</label>
                     <input
                       type="email"
                       required
                       value={formData.email}
                       onChange={(e) => updateFormData('email', e.target.value)}
-                      className="w-full px-4 py-3 rounded-xl border border-stone-200 focus:border-brand-primary focus:ring-4 focus:ring-brand-primary/10 outline-none transition-all"
+                      className={getFieldClassName('email')}
+                      aria-invalid={!!formErrors.email}
+                      aria-describedby={formErrors.email ? 'email-error' : undefined}
                     />
+                    {renderFieldError('email')}
                   </div>
-                  <div>
+                  <div data-field="cnpj">
                     <label className="text-sm font-bold text-[#7F8080] block mb-2">CNPJ *</label>
                     <input
                       type="text"
                       required
                       value={formData.cnpj}
                       onChange={(e) => updateFormData('cnpj', cnpjMask(e.target.value))}
-                      className="w-full px-4 py-3 rounded-xl border border-stone-200 focus:border-brand-primary focus:ring-4 focus:ring-brand-primary/10 outline-none transition-all"
+                      className={getFieldClassName('cnpj')}
                       inputMode="numeric"
                       maxLength={18}
                       placeholder="00.000.000/0000-00"
+                      aria-invalid={!!formErrors.cnpj}
+                      aria-describedby={formErrors.cnpj ? 'cnpj-error' : undefined}
                     />
+                    {renderFieldError('cnpj')}
                   </div>
                 </div>
 
                 <div className="grid md:grid-cols-2 gap-6">
-                  <div>
+                  <div data-field="cidade">
                     <label className="text-sm font-bold text-[#7F8080] block mb-2">Cidade *</label>
                     <input
                       type="text"
                       required
                       value={formData.cidade}
                       onChange={(e) => updateFormData('cidade', e.target.value)}
-                      className="w-full px-4 py-3 rounded-xl border border-stone-200 focus:border-brand-primary focus:ring-4 focus:ring-brand-primary/10 outline-none transition-all"
+                      className={getFieldClassName('cidade')}
                       placeholder="Ex: São Paulo"
+                      aria-invalid={!!formErrors.cidade}
+                      aria-describedby={formErrors.cidade ? 'cidade-error' : undefined}
                     />
+                    {renderFieldError('cidade')}
                   </div>
-                  <div>
+                  <div data-field="estado">
                     <label className="text-sm font-bold text-[#7F8080] block mb-2">Em qual estado está localizado? *</label>
                     <select
                       required
                       value={formData.estado}
                       onChange={(e) => updateFormData('estado', e.target.value)}
-                      className="w-full px-4 py-3 rounded-xl border border-stone-200 focus:border-brand-primary focus:ring-4 focus:ring-brand-primary/10 outline-none transition-all cursor-pointer text-[#7F8080]"
+                      className={getFieldClassName('estado', 'cursor-pointer text-[#7F8080]')}
+                      aria-invalid={!!formErrors.estado}
+                      aria-describedby={formErrors.estado ? 'estado-error' : undefined}
                     >
                       <option value="">Selecionar</option>
                       {leadScoreConfig.stateConfig.priorityStates.map((uf) => (
                         <option key={uf} value={uf}>{uf}</option>
                       ))}
                     </select>
+                    {renderFieldError('estado')}
                   </div>
                 </div>
 
                 <div className="grid md:grid-cols-2 gap-6">
-                  <div>
+                  <div data-field="instagram">
                     <label className="text-sm font-bold text-[#7F8080] block mb-2">@ do Instagram da Loja *</label>
                     <input
                       type="text"
                       required
                       value={formData.instagram}
                       onChange={(e) => updateFormData('instagram', e.target.value)}
-                      className="w-full px-4 py-3 rounded-xl border border-stone-200 focus:border-brand-primary focus:ring-4 focus:ring-brand-primary/10 outline-none transition-all"
+                      className={getFieldClassName('instagram')}
+                      aria-invalid={!!formErrors.instagram}
+                      aria-describedby={formErrors.instagram ? 'instagram-error' : undefined}
                     />
+                    {renderFieldError('instagram')}
                   </div>
-                  <div>
+                  <div data-field="marcasAtuais">
                     <label className="text-sm font-bold text-[#7F8080] block mb-2">Marcas que vende hoje? *</label>
                     <input
                       type="text"
                       required
                       value={formData.marcasAtuais}
                       onChange={(e) => updateFormData('marcasAtuais', e.target.value)}
-                      className="w-full px-4 py-3 rounded-xl border border-stone-200 focus:border-brand-primary focus:ring-4 focus:ring-brand-primary/10 outline-none transition-all"
+                      className={getFieldClassName('marcasAtuais')}
+                      aria-invalid={!!formErrors.marcasAtuais}
+                      aria-describedby={formErrors.marcasAtuais ? 'marcasAtuais-error' : undefined}
                     />
+                    {renderFieldError('marcasAtuais')}
                   </div>
                 </div>
 
                 <div className="grid md:grid-cols-3 gap-6">
-                  <div>
+                  <div data-field="storeType">
                     <label className="text-sm font-bold text-[#7F8080] block mb-2">Qual o tipo da loja? *</label>
                     <select
                       required
                       value={formData.storeType}
                       onChange={(e) => updateFormData('storeType', e.target.value)}
-                      className="w-full px-4 py-3 rounded-xl border border-stone-200 focus:border-brand-primary focus:ring-4 focus:ring-brand-primary/10 outline-none transition-all cursor-pointer text-[#7F8080]"
+                      className={getFieldClassName('storeType', 'cursor-pointer text-[#7F8080]')}
+                      aria-invalid={!!formErrors.storeType}
+                      aria-describedby={formErrors.storeType ? 'storeType-error' : undefined}
                     >
                       <option value="">Selecionar</option>
                       {leadScoreConfig.questions[0].options.map((option) => (
                         <option key={option.label} value={option.value || option.label}>{option.label}</option>
                       ))}
                     </select>
+                    {renderFieldError('storeType')}
                   </div>
-                  <div>
+                  <div data-field="tempoCnpj">
                     <label className="text-sm font-bold text-[#7F8080] block mb-2">Há quanto tempo você possui CNPJ? *</label>
                     <select
                       required
                       value={formData.tempoCnpj}
                       onChange={(e) => updateFormData('tempoCnpj', e.target.value)}
-                      className="w-full px-4 py-3 rounded-xl border border-stone-200 focus:border-brand-primary focus:ring-4 focus:ring-brand-primary/10 outline-none transition-all cursor-pointer text-[#7F8080]"
+                      className={getFieldClassName('tempoCnpj', 'cursor-pointer text-[#7F8080]')}
+                      aria-invalid={!!formErrors.tempoCnpj}
+                      aria-describedby={formErrors.tempoCnpj ? 'tempoCnpj-error' : undefined}
                     >
                       <option value="">Selecionar</option>
                       {leadScoreConfig.questions[3].options.map((option) => (
                         <option key={option.label} value={option.value || option.label}>{option.label}</option>
                       ))}
                     </select>
+                    {renderFieldError('tempoCnpj')}
                   </div>
-                  <div>
+                  <div data-field="hasPhysicalStore">
                     <label className="text-sm font-bold text-[#7F8080] block mb-2">{wrapSpecialChars("Possui loja física? *", "font-semibold")}</label>
-                    <div className="flex gap-8 py-3">
+                    <div className={`flex gap-8 rounded-xl border px-4 py-3 transition-colors ${getChoiceClassName('hasPhysicalStore')}`}>
                       {leadScoreConfig.questions[1].options.map((option) => (
                         <label key={option.value} className="flex items-center gap-2 cursor-pointer group">
                           <input
@@ -1170,30 +1328,36 @@ const PartnershipForm = () => {
                             checked={formData.hasPhysicalStore === option.value}
                             onChange={(e) => updateFormData('hasPhysicalStore', e.target.value)}
                             className="w-4 h-4 text-brand-primary focus:ring-brand-primary"
+                            aria-invalid={!!formErrors.hasPhysicalStore}
+                            aria-describedby={formErrors.hasPhysicalStore ? 'hasPhysicalStore-error' : undefined}
                           />
                           <span className="text-[#7F8080] font-medium group-hover:text-brand-primary transition-colors">{wrapSpecialChars(option.label)}</span>
                         </label>
                       ))}
                     </div>
+                    {renderFieldError('hasPhysicalStore')}
                   </div>
                 </div>
 
-                <div>
+                <div data-field="segments">
                   <label className="text-sm font-bold text-[#7F8080] block mb-3">Quais segmentos de produtos trabalha? *</label>
                   <div className="grid sm:grid-cols-3 gap-3">
                     {leadScoreConfig.questions[2].options.map((option) => (
-                      <label key={option.value} className="flex items-center gap-3 rounded-xl border border-stone-200 px-4 py-3 cursor-pointer hover:border-brand-primary transition-colors">
+                      <label key={option.value} className={`flex items-center gap-3 rounded-xl border px-4 py-3 cursor-pointer transition-colors ${getChoiceClassName('segments')}`}>
                         <input
                           type="checkbox"
                           value={option.value}
                           checked={formData.segments.includes(option.value)}
                           onChange={handleSegmentChange}
                           className="w-4 h-4 text-brand-primary focus:ring-brand-primary rounded"
+                          aria-invalid={!!formErrors.segments}
+                          aria-describedby={formErrors.segments ? 'segments-error' : undefined}
                         />
                         <span className="text-[#7F8080] font-medium">{option.label}</span>
                       </label>
                     ))}
                   </div>
+                  {renderFieldError('segments')}
                 </div>
 
                 <button
