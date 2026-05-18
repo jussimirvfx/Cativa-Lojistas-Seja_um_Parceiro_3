@@ -17,6 +17,7 @@ import {
   Instagram,
   X
 } from 'lucide-react';
+import { useMetaPixel } from '@jussimirvfx/meta-pixel-tracking';
 import { useState, useEffect, useRef, FormEvent, ChangeEvent } from 'react';
 
 const Navbar = () => {
@@ -807,12 +808,13 @@ const calculateLeadScore = (formData: LeadFormData): LeadScoreDetails => {
   const score = Math.min(raw_score, 100);
   const disqualified = disqualification_reasons.length > 0;
   const calculation = `${breakdown.map((item) => item.points).join(' + ')} = ${raw_score}${score !== raw_score ? `, limitado a ${score}` : ''}`;
+  const qualified = !disqualified && score >= 50;
 
   return {
     score,
     raw_score,
     calculation,
-    qualified: !disqualified,
+    qualified,
     disqualified,
     disqualification_reasons,
     breakdown
@@ -852,6 +854,7 @@ const enviarParaWebhook = async (leadData: Record<string, unknown>) => {
 };
 
 const PartnershipForm = () => {
+  const { trackLead, trackLeadQualificado } = useMetaPixel();
   const [formData, setFormData] = useState<LeadFormData>({
     nome: '',
     email: '',
@@ -954,9 +957,23 @@ const PartnershipForm = () => {
     console.log('Lead scoring detalhado:', leadScoreDetails);
     console.log('Dados preparados para Meta:', leadData);
     setIsSubmitting(true);
-    await enviarParaWebhook(leadData);
-    setIsSubmitting(false);
-    setIsSubmitted(true);
+    try {
+      await trackLead(leadData);
+      console.log('Lead enviado para Meta!');
+
+      if (leadScoreDetails.qualified) {
+        await trackLeadQualificado(leadData);
+        console.log('Lead qualificado enviado para Meta!');
+      }
+
+      await enviarParaWebhook(leadData);
+      setIsSubmitted(true);
+    } catch (error) {
+      console.error('Erro ao enviar lead para Meta:', error);
+      alert('Erro ao enviar. Tente novamente.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
