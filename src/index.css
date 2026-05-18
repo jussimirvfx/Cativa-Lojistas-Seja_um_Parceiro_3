@@ -1,0 +1,29 @@
+@font-face {
+  font-family: 'Polymath';
+  src: url('https://frwfcibbvbj5zog7.public.blob.vercel-storage.com/fonts/polymathdispdemo-regular-1778240888919.otf') format('opentype');
+  font-weight: normal;
+  font-style: normal;
+}
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&family=Montserrat:ital,wght@1,400;1,600&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Polymath", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Polymath", serif;
+  --font-poppins: "Poppins", sans-serif;
+  --font-montserrat: "Montserrat", sans-serif;
+  
+  --color-brand-primary: #EFDE9D;
+  --color-brand-secondary: #d4c17d;
+  --color-brand-gold: #EFDE9D;
+}
+
+@layer base {
+  body {
+    @apply antialiased text-stone-900 bg-stone-50 font-sans tracking-normal;
+  }
+  
+  h1, h2, h3, h4, .font-serif {
+    @apply font-serif tracking-normal;
+  }
+}
