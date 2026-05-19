@@ -606,6 +606,8 @@ type LeadPayload = Record<string, unknown> & {
   qualification_status: 'Qualificado' | 'Desqualificado';
 };
 
+type WebhookPayload = Record<string, string | string[]>;
+
 const FORM_ID = 'cta-form';
 const BRAND_NAME = 'Grupo Cativa';
 
@@ -761,6 +763,10 @@ const getQuestion = (questionId: string | number) => {
   return leadScoreConfig.questions.find((item) => item.id === questionId);
 };
 
+const getSelectedOptionLabel = (questionId: string | number, selectedValue: string) => {
+  return getQuestionOption(questionId, selectedValue)?.label || selectedValue;
+};
+
 const calculateLeadScore = (formData: LeadFormData): LeadScoreDetails => {
   const breakdown: LeadScoreItem[] = [];
   const disqualification_reasons: string[] = [];
@@ -872,29 +878,34 @@ const buildLeadPayload = (formData: LeadFormData, leadScoreDetails: LeadScoreDet
     store_type: formData.storeType,
     has_physical_store: formData.hasPhysicalStore,
     segments: formData.segments,
-    cnpj_age: formData.tempoCnpj,
-    formulario: {
-      nome_completo: formData.nome.trim(),
-      nome_da_loja: formData.nomeLoja.trim(),
-      whatsapp_com_ddd: formData.telefone,
-      whatsapp_e164: telefoneE164,
-      email: formData.email.trim().toLowerCase(),
-      cnpj: formData.cnpj,
-      cnpj_numerico: cnpjNumerico,
-      cidade: formData.cidade.trim(),
-      estado: formData.estado.trim().toUpperCase(),
-      pais: formData.pais,
-      instagram_da_loja: formData.instagram.trim(),
-      marcas_que_vende_hoje: formData.marcasAtuais.trim(),
-      tipo_da_loja: formData.storeType,
-      tempo_de_cnpj: formData.tempoCnpj,
-      possui_loja_fisica: formData.hasPhysicalStore,
-      segmentos_de_produtos: formData.segments
-    }
+    cnpj_age: formData.tempoCnpj
   };
 };
 
-const enviarParaWebhook = async (leadData: LeadPayload) => {
+const buildWebhookPayload = (formData: LeadFormData): WebhookPayload => {
+  const cnpjNumerico = formData.cnpj.replace(/\D/g, '');
+
+  return {
+    nome_completo: formData.nome.trim(),
+    nome_da_loja: formData.nomeLoja.trim(),
+    whatsapp_com_ddd: formData.telefone,
+    whatsapp_e164: converterParaE164(formData.telefone),
+    email: formData.email.trim().toLowerCase(),
+    cnpj: formData.cnpj,
+    cnpj_numerico: cnpjNumerico,
+    cidade: formData.cidade.trim(),
+    estado: formData.estado.trim().toUpperCase(),
+    pais: formData.pais,
+    instagram_da_loja: formData.instagram.trim(),
+    marcas_que_vende_hoje: formData.marcasAtuais.trim(),
+    tipo_da_loja: getSelectedOptionLabel('storeType', formData.storeType),
+    tempo_de_cnpj: getSelectedOptionLabel(1779114772592, formData.tempoCnpj),
+    possui_loja_fisica: getSelectedOptionLabel('hasPhysicalStore', formData.hasPhysicalStore),
+    segmentos_de_produtos: formData.segments.map((segment) => getSelectedOptionLabel('segments', segment))
+  };
+};
+
+const enviarParaWebhook = async (webhookData: WebhookPayload) => {
   const webhookUrl = import.meta.env.VITE_FORM_WEBHOOK_URL;
   const webhookToken = import.meta.env.VITE_WEBHOOK_TOKEN;
 
@@ -914,7 +925,7 @@ const enviarParaWebhook = async (leadData: LeadPayload) => {
     method: 'POST',
     headers,
     body: JSON.stringify({
-      ...leadData,
+      ...webhookData,
       timestamp: new Date().toISOString(),
       source: 'landing-page',
       user_agent: navigator.userAgent,
@@ -1096,9 +1107,11 @@ const PartnershipForm = () => {
 
     const leadScoreDetails = calculateLeadScore(formData);
     const leadData = buildLeadPayload(formData, leadScoreDetails);
+    const webhookData = buildWebhookPayload(formData);
 
     console.log('Lead scoring detalhado:', leadScoreDetails);
     console.log('Dados preparados para Meta:', leadData);
+    console.log('Dados preparados para webhook:', webhookData);
     setIsSubmitting(true);
     try {
       if (!leadScoreDetails.disqualified) {
@@ -1113,7 +1126,7 @@ const PartnershipForm = () => {
         console.log('Lead qualificado enviado para Meta!');
       }
 
-      await enviarParaWebhook(leadData);
+      await enviarParaWebhook(webhookData);
       setSubmissionStatus(leadScoreDetails.disqualified ? 'disqualified' : 'qualified');
       setIsSubmitted(true);
     } catch (error) {
