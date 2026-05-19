@@ -600,6 +600,12 @@ type LeadScoreDetails = {
   breakdown: LeadScoreItem[];
 };
 
+type LeadPayload = Record<string, unknown> & {
+  qualified: boolean;
+  disqualified: boolean;
+  qualification_status: 'Qualificado' | 'Desqualificado';
+};
+
 const FORM_ID = 'cta-form';
 const BRAND_NAME = 'Grupo Cativa';
 
@@ -838,35 +844,98 @@ const calculateLeadScore = (formData: LeadFormData): LeadScoreDetails => {
   };
 };
 
-const enviarParaWebhook = async (leadData: Record<string, unknown>) => {
-  try {
-    const webhookUrl = import.meta.env.VITE_FORM_WEBHOOK_URL || 'https://api.seudominio.com/webhook/leads';
-    const webhookToken = import.meta.env.VITE_WEBHOOK_TOKEN || '';
+const buildLeadPayload = (formData: LeadFormData, leadScoreDetails: LeadScoreDetails): LeadPayload => {
+  const telefoneE164 = converterParaE164(formData.telefone);
+  const cnpjNumerico = formData.cnpj.replace(/\D/g, '');
 
-    const response = await fetch(webhookUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${webhookToken}`
-      },
-      body: JSON.stringify({
-        ...leadData,
-        timestamp: new Date().toISOString(),
-        source: 'landing-page',
-        user_agent: navigator.userAgent,
-        page_url: window.location.href,
-        referrer: document.referrer || 'direct'
-      })
-    });
-
-    if (!response.ok) {
-      throw new Error(`Webhook error: ${response.status}`);
+  return {
+    name: formData.nome.trim(),
+    email: formData.email.trim().toLowerCase(),
+    phone: telefoneE164,
+    city: formData.cidade.trim(),
+    state: formData.estado.trim().toUpperCase(),
+    country: formData.pais,
+    value: leadScoreDetails.score,
+    currency: 'BRL',
+    content_name: 'Formulario de Contato',
+    content_category: 'Lead Generation',
+    lead_score: leadScoreDetails.score,
+    lead_score_details: leadScoreDetails,
+    qualified: leadScoreDetails.qualified,
+    disqualified: leadScoreDetails.disqualified,
+    qualification_status: leadScoreDetails.qualified ? 'Qualificado' : 'Desqualificado',
+    disqualification_reasons: leadScoreDetails.disqualification_reasons,
+    store_name: formData.nomeLoja.trim(),
+    cnpj: cnpjNumerico,
+    instagram: formData.instagram.trim(),
+    current_brands: formData.marcasAtuais.trim(),
+    store_type: formData.storeType,
+    has_physical_store: formData.hasPhysicalStore,
+    segments: formData.segments,
+    cnpj_age: formData.tempoCnpj,
+    formulario: {
+      nome_completo: formData.nome.trim(),
+      nome_da_loja: formData.nomeLoja.trim(),
+      whatsapp_com_ddd: formData.telefone,
+      whatsapp_e164: telefoneE164,
+      email: formData.email.trim().toLowerCase(),
+      cnpj: formData.cnpj,
+      cnpj_numerico: cnpjNumerico,
+      cidade: formData.cidade.trim(),
+      estado: formData.estado.trim().toUpperCase(),
+      pais: formData.pais,
+      instagram_da_loja: formData.instagram.trim(),
+      marcas_que_vende_hoje: formData.marcasAtuais.trim(),
+      tipo_da_loja: formData.storeType,
+      tempo_de_cnpj: formData.tempoCnpj,
+      possui_loja_fisica: formData.hasPhysicalStore,
+      segmentos_de_produtos: formData.segments
     }
+  };
+};
 
-    console.log('Dados enviados para webhook com sucesso');
-    return await response.json();
-  } catch (error) {
-    console.error('Erro ao enviar para webhook:', error);
+const enviarParaWebhook = async (leadData: LeadPayload) => {
+  const webhookUrl = import.meta.env.VITE_FORM_WEBHOOK_URL;
+  const webhookToken = import.meta.env.VITE_WEBHOOK_TOKEN;
+
+  if (!webhookUrl) {
+    throw new Error('Variavel VITE_FORM_WEBHOOK_URL nao configurada.');
+  }
+
+  const headers: HeadersInit = {
+    'Content-Type': 'application/json'
+  };
+
+  if (webhookToken) {
+    headers.Authorization = `Bearer ${webhookToken}`;
+  }
+
+  const response = await fetch(webhookUrl, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      ...leadData,
+      timestamp: new Date().toISOString(),
+      source: 'landing-page',
+      user_agent: navigator.userAgent,
+      page_url: window.location.href,
+      referrer: document.referrer || 'direct'
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error(`Webhook error: ${response.status}`);
+  }
+
+  console.log('Dados enviados para webhook com sucesso');
+
+  const responseText = await response.text();
+  if (!responseText) return null;
+
+  try {
+    return JSON.parse(responseText);
+  } catch {
+    return responseText;
   }
 };
 
@@ -1026,47 +1095,18 @@ const PartnershipForm = () => {
     }
 
     const leadScoreDetails = calculateLeadScore(formData);
-
-    if (leadScoreDetails.disqualified) {
-      console.log('Lead desqualificado pela curadoria:', leadScoreDetails);
-      setSubmissionStatus('disqualified');
-      setIsSubmitted(true);
-      return;
-    }
-
-    const leadData = {
-      name: formData.nome.trim(),
-      email: formData.email.trim().toLowerCase(),
-      phone: converterParaE164(formData.telefone),
-      city: formData.cidade.trim(),
-      state: formData.estado.trim().toUpperCase(),
-      country: formData.pais,
-      value: leadScoreDetails.score,
-      currency: 'BRL',
-      content_name: 'Formulário de Contato',
-      content_category: 'Lead Generation',
-      lead_score: leadScoreDetails.score,
-      lead_score_details: leadScoreDetails,
-      qualified: leadScoreDetails.qualified,
-      disqualified: leadScoreDetails.disqualified,
-      qualification_status: leadScoreDetails.qualified ? 'Qualificado' : 'Desqualificado',
-      disqualification_reasons: leadScoreDetails.disqualification_reasons,
-      store_name: formData.nomeLoja.trim(),
-      cnpj: formData.cnpj.replace(/\D/g, ''),
-      instagram: formData.instagram.trim(),
-      current_brands: formData.marcasAtuais.trim(),
-      store_type: formData.storeType,
-      has_physical_store: formData.hasPhysicalStore,
-      segments: formData.segments,
-      cnpj_age: formData.tempoCnpj
-    };
+    const leadData = buildLeadPayload(formData, leadScoreDetails);
 
     console.log('Lead scoring detalhado:', leadScoreDetails);
     console.log('Dados preparados para Meta:', leadData);
     setIsSubmitting(true);
     try {
-      await trackLead(leadData);
-      console.log('Lead enviado para Meta!');
+      if (!leadScoreDetails.disqualified) {
+        await trackLead(leadData);
+        console.log('Lead enviado para Meta!');
+      } else {
+        console.log('Lead desqualificado pela curadoria:', leadScoreDetails);
+      }
 
       if (leadScoreDetails.qualified) {
         await trackLeadQualificado(leadData);
@@ -1074,10 +1114,10 @@ const PartnershipForm = () => {
       }
 
       await enviarParaWebhook(leadData);
-      setSubmissionStatus('qualified');
+      setSubmissionStatus(leadScoreDetails.disqualified ? 'disqualified' : 'qualified');
       setIsSubmitted(true);
     } catch (error) {
-      console.error('Erro ao enviar lead para Meta:', error);
+      console.error('Erro ao enviar cadastro:', error);
       alert('Erro ao enviar. Tente novamente.');
     } finally {
       setIsSubmitting(false);
