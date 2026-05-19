@@ -17,7 +17,7 @@ import {
   Instagram,
   X
 } from 'lucide-react';
-import { useMetaPixel } from '@jussimirvfx/meta-pixel-tracking';
+import { useMetaPixel } from './lib/metaPixel';
 import { useState, useEffect, useRef, FormEvent, ChangeEvent } from 'react';
 
 const Navbar = () => {

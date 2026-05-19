@@ -1,6 +1,6 @@
 import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
-import {configureMetaPixel, MetaPixel, MetaPixelProvider} from '@jussimirvfx/meta-pixel-tracking';
+import { configureMetaPixel, MetaPixel, MetaPixelProvider } from './lib/metaPixel';
 import App from './App.tsx';
 import './index.css';
 
