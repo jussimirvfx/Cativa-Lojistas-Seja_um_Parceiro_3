@@ -17,7 +17,7 @@ import {
   Instagram,
   X
 } from 'lucide-react';
-import { useMetaPixel } from './lib/metaPixel';
+import { useMetaPixel } from '@jussimirvfx/meta-pixel-tracking';
 import { useState, useEffect, useRef, FormEvent, ChangeEvent } from 'react';
 
 const Navbar = () => {
@@ -606,7 +606,7 @@ type LeadPayload = Record<string, unknown> & {
   qualification_status: 'Qualificado' | 'Desqualificado';
 };
 
-type WebhookPayload = Record<string, string | string[]>;
+type WebhookPayload = Record<string, unknown>;
 
 const FORM_ID = 'cta-form';
 const BRAND_NAME = 'Grupo Cativa';
@@ -625,7 +625,7 @@ const DDDS_VALIDOS = [
 ];
 
 const leadScoreConfig = {
-  lastUpdated: "2026-05-18T16:49:58.836Z",
+  lastUpdated: "2026-05-21T10:15:44.127Z",
   stateConfig: {
     question: "Em qual estado está localizado?",
     priorityStates: [
@@ -863,7 +863,7 @@ const buildLeadPayload = (formData: LeadFormData, leadScoreDetails: LeadScoreDet
     country: formData.pais,
     value: leadScoreDetails.score,
     currency: 'BRL',
-    content_name: 'Formulario de Contato',
+    content_name: 'Formulário de Contato',
     content_category: 'Lead Generation',
     lead_score: leadScoreDetails.score,
     lead_score_details: leadScoreDetails,
@@ -882,15 +882,31 @@ const buildLeadPayload = (formData: LeadFormData, leadScoreDetails: LeadScoreDet
   };
 };
 
-const buildWebhookPayload = (formData: LeadFormData): WebhookPayload => {
+const buildWebhookPayload = (formData: LeadFormData, leadScoreDetails: LeadScoreDetails): WebhookPayload => {
   const cnpjNumerico = formData.cnpj.replace(/\D/g, '');
+  const telefoneE164 = converterParaE164(formData.telefone);
 
   return {
+    name: formData.nome.trim(),
+    email: formData.email.trim().toLowerCase(),
+    phone: telefoneE164,
+    city: formData.cidade.trim(),
+    state: formData.estado.trim().toUpperCase(),
+    country: formData.pais,
+    value: leadScoreDetails.score,
+    currency: 'BRL',
+    content_name: 'Formulário de Contato',
+    content_category: 'Lead Generation',
+    lead_score: leadScoreDetails.score,
+    lead_score_details: leadScoreDetails,
+    qualified: leadScoreDetails.qualified,
+    disqualified: leadScoreDetails.disqualified,
+    qualification_status: leadScoreDetails.qualified ? 'Qualificado' : 'Desqualificado',
+    disqualification_reasons: leadScoreDetails.disqualification_reasons,
     nome_completo: formData.nome.trim(),
     nome_da_loja: formData.nomeLoja.trim(),
     whatsapp_com_ddd: formData.telefone,
-    whatsapp_e164: converterParaE164(formData.telefone),
-    email: formData.email.trim().toLowerCase(),
+    whatsapp_e164: telefoneE164,
     cnpj: formData.cnpj,
     cnpj_numerico: cnpjNumerico,
     cidade: formData.cidade.trim(),
@@ -906,47 +922,53 @@ const buildWebhookPayload = (formData: LeadFormData): WebhookPayload => {
 };
 
 const enviarParaWebhook = async (webhookData: WebhookPayload) => {
-  const webhookUrl = import.meta.env.VITE_FORM_WEBHOOK_URL;
-  const webhookToken = import.meta.env.VITE_WEBHOOK_TOKEN;
-
-  if (!webhookUrl) {
-    throw new Error('Variavel VITE_FORM_WEBHOOK_URL nao configurada.');
-  }
-
-  const headers: HeadersInit = {
-    'Content-Type': 'application/json'
-  };
-
-  if (webhookToken) {
-    headers.Authorization = `Bearer ${webhookToken}`;
-  }
-
-  const response = await fetch(webhookUrl, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
-      ...webhookData,
-      timestamp: new Date().toISOString(),
-      source: 'landing-page',
-      user_agent: navigator.userAgent,
-      page_url: window.location.href,
-      referrer: document.referrer || 'direct'
-    })
-  });
-
-  if (!response.ok) {
-    throw new Error(`Webhook error: ${response.status}`);
-  }
-
-  console.log('Dados enviados para webhook com sucesso');
-
-  const responseText = await response.text();
-  if (!responseText) return null;
-
   try {
-    return JSON.parse(responseText);
-  } catch {
-    return responseText;
+    const webhookUrl = import.meta.env.VITE_FORM_WEBHOOK_URL;
+    const webhookToken = import.meta.env.VITE_WEBHOOK_TOKEN;
+
+    if (!webhookUrl) {
+      console.warn('Variável VITE_FORM_WEBHOOK_URL não configurada. Webhook ignorado.');
+      return null;
+    }
+
+    const headers: HeadersInit = {
+      'Content-Type': 'application/json'
+    };
+
+    if (webhookToken) {
+      headers.Authorization = `Bearer ${webhookToken}`;
+    }
+
+    const response = await fetch(webhookUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        ...webhookData,
+        timestamp: new Date().toISOString(),
+        source: 'landing-page',
+        user_agent: navigator.userAgent,
+        page_url: window.location.href,
+        referrer: document.referrer || 'direct'
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Webhook error: ${response.status}`);
+    }
+
+    console.log('Dados enviados para webhook com sucesso');
+
+    const responseText = await response.text();
+    if (!responseText) return null;
+
+    try {
+      return JSON.parse(responseText);
+    } catch {
+      return responseText;
+    }
+  } catch (error) {
+    console.error('Erro ao enviar para webhook:', error);
+    return null;
   }
 };
 
@@ -1107,23 +1129,21 @@ const PartnershipForm = () => {
 
     const leadScoreDetails = calculateLeadScore(formData);
     const leadData = buildLeadPayload(formData, leadScoreDetails);
-    const webhookData = buildWebhookPayload(formData);
+    const webhookData = buildWebhookPayload(formData, leadScoreDetails);
 
     console.log('Lead scoring detalhado:', leadScoreDetails);
     console.log('Dados preparados para Meta:', leadData);
     console.log('Dados preparados para webhook:', webhookData);
     setIsSubmitting(true);
     try {
-      if (!leadScoreDetails.disqualified) {
-        await trackLead(leadData);
-        console.log('Lead enviado para Meta!');
-      } else {
-        console.log('Lead desqualificado pela curadoria:', leadScoreDetails);
-      }
+      await trackLead(leadData);
+      console.log('Lead enviado para Meta!');
 
       if (leadScoreDetails.qualified) {
         await trackLeadQualificado(leadData);
         console.log('Lead qualificado enviado para Meta!');
+      } else {
+        console.log('Lead não qualificado para evento LeadQualificado:', leadScoreDetails);
       }
 
       await enviarParaWebhook(webhookData);
@@ -1162,34 +1182,17 @@ const PartnershipForm = () => {
           <div className="bg-white rounded-[2.5rem] shadow-2xl p-8 md:p-16 border border-stone-100">
             {isSubmitted ? (
               <div className="min-h-[360px] flex flex-col items-center justify-center text-center gap-6">
-                {submissionStatus === 'disqualified' ? (
-                  <>
-                    <div className="w-36 h-36 rounded-full bg-red-50 text-red-600 flex items-center justify-center">
-                      <X size={92} strokeWidth={2.6} />
-                    </div>
-                    <p className="text-[#7F8080]/80 text-lg max-w-2xl mx-auto whitespace-pre-line leading-relaxed">
-                      {`Infelizmente, informamos que o seu cadastro não foi selecionado para avançarmos neste momento. 
-
-Como nosso processo de entrada passa por uma curadoria interna, não conseguiremos seguir com a parceria agora. 
-
-Agradecemos o seu interesse na nossa marca e desejamos muito sucesso!`}
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    <div className="w-36 h-36 rounded-full bg-green-50 text-green-600 flex items-center justify-center">
-                      <CheckCircle2 size={92} strokeWidth={2.6} />
-                    </div>
-                    <div>
-                      <h3 className="text-3xl md:text-4xl font-serif font-bold text-[#7F8080] mb-3">
-                        Obrigado pelo cadastro!
-                      </h3>
-                      <p className="text-[#7F8080]/75 text-lg max-w-xl mx-auto">
-                        Recebemos suas informações. Nossa equipe entrará em contato em breve para falar sobre a parceria com o Grupo Cativa.
-                      </p>
-                    </div>
-                  </>
-                )}
+                <div className="w-36 h-36 rounded-full bg-green-50 text-green-600 flex items-center justify-center">
+                  <CheckCircle2 size={92} strokeWidth={2.6} />
+                </div>
+                <div>
+                  <h3 className="text-3xl md:text-4xl font-serif font-bold text-[#7F8080] mb-3">
+                    Obrigado pelo cadastro!
+                  </h3>
+                  <p className="text-[#7F8080]/75 text-lg max-w-xl mx-auto">
+                    Recebemos suas informações. Nossa equipe entrará em contato em breve para falar sobre a parceria com o Grupo Cativa.
+                  </p>
+                </div>
               </div>
             ) : (
               <form onSubmit={handleSubmit} className="space-y-8" noValidate>
