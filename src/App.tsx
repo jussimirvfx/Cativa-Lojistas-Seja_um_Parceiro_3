@@ -6,6 +6,7 @@
 import { motion, AnimatePresence, useInView } from 'motion/react';
 import { 
   CheckCircle2, 
+  XCircle,
   ChevronRight, 
   ChevronLeft,
   TrendingUp, 
@@ -610,6 +611,11 @@ type WebhookPayload = Record<string, unknown>;
 
 const FORM_ID = 'cta-form';
 const BRAND_NAME = 'Grupo Cativa';
+const DISQUALIFIED_MESSAGE = `Infelizmente, informamos que o seu cadastro não foi selecionado para avançarmos neste momento.
+
+Como nosso processo de entrada passa por uma curadoria interna, não conseguiremos seguir com a parceria agora.
+
+Agradecemos o seu interesse na nossa marca e desejamos muito sucesso!`;
 
 const DDDS_VALIDOS = [
   11, 12, 13, 14, 15, 16, 17, 18, 19,
@@ -1128,10 +1134,19 @@ const PartnershipForm = () => {
     }
 
     const leadScoreDetails = calculateLeadScore(formData);
+
+    console.log('Lead scoring detalhado:', leadScoreDetails);
+
+    if (leadScoreDetails.disqualified) {
+      console.log('Lead desqualificado bloqueado antes do envio para Meta e webhook:', leadScoreDetails);
+      setSubmissionStatus('disqualified');
+      setIsSubmitted(true);
+      return;
+    }
+
     const leadData = buildLeadPayload(formData, leadScoreDetails);
     const webhookData = buildWebhookPayload(formData, leadScoreDetails);
 
-    console.log('Lead scoring detalhado:', leadScoreDetails);
     console.log('Dados preparados para Meta:', leadData);
     console.log('Dados preparados para webhook:', webhookData);
     setIsSubmitting(true);
@@ -1182,17 +1197,30 @@ const PartnershipForm = () => {
           <div className="bg-white rounded-[2.5rem] shadow-2xl p-8 md:p-16 border border-stone-100">
             {isSubmitted ? (
               <div className="min-h-[360px] flex flex-col items-center justify-center text-center gap-6">
-                <div className="w-36 h-36 rounded-full bg-green-50 text-green-600 flex items-center justify-center">
-                  <CheckCircle2 size={92} strokeWidth={2.6} />
-                </div>
-                <div>
-                  <h3 className="text-3xl md:text-4xl font-serif font-bold text-[#7F8080] mb-3">
-                    Obrigado pelo cadastro!
-                  </h3>
-                  <p className="text-[#7F8080]/75 text-lg max-w-xl mx-auto">
-                    Recebemos suas informações. Nossa equipe entrará em contato em breve para falar sobre a parceria com o Grupo Cativa.
-                  </p>
-                </div>
+                {submissionStatus === 'disqualified' ? (
+                  <>
+                    <div className="w-36 h-36 rounded-full bg-red-50 text-red-600 flex items-center justify-center">
+                      <XCircle size={92} strokeWidth={2.6} />
+                    </div>
+                    <p className="text-[#7F8080]/75 text-lg max-w-2xl mx-auto whitespace-pre-line">
+                      {DISQUALIFIED_MESSAGE}
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <div className="w-36 h-36 rounded-full bg-green-50 text-green-600 flex items-center justify-center">
+                      <CheckCircle2 size={92} strokeWidth={2.6} />
+                    </div>
+                    <div>
+                      <h3 className="text-3xl md:text-4xl font-serif font-bold text-[#7F8080] mb-3">
+                        Obrigado pelo cadastro!
+                      </h3>
+                      <p className="text-[#7F8080]/75 text-lg max-w-xl mx-auto">
+                        Recebemos suas informações. Nossa equipe entrará em contato em breve para falar sobre a parceria com o Grupo Cativa.
+                      </p>
+                    </div>
+                  </>
+                )}
               </div>
             ) : (
               <form onSubmit={handleSubmit} className="space-y-8" noValidate>
