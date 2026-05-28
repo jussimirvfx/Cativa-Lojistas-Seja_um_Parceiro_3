@@ -19,7 +19,7 @@ import {
   X
 } from 'lucide-react';
 import { useMetaPixel } from '@jussimirvfx/meta-pixel-tracking';
-import { useState, useEffect, useRef, FormEvent, ChangeEvent } from 'react';
+import { useState, useEffect, useMemo, useRef, FormEvent, ChangeEvent } from 'react';
 
 const Navbar = () => {
   const [isScrolled, setIsScrolled] = useState(false);
@@ -584,6 +584,32 @@ type FormFieldName =
 
 type FormErrors = Partial<Record<FormFieldName, string>>;
 
+type BrazilianCity = {
+  name: string;
+  state: string;
+  normalizedName: string;
+};
+
+type IbgeCity = {
+  nome?: string;
+  microrregiao?: {
+    mesorregiao?: {
+      UF?: {
+        sigla?: string;
+      };
+    };
+  };
+  'regiao-imediata'?: {
+    'regiao-intermediaria'?: {
+      UF?: {
+        sigla?: string;
+      };
+    };
+  };
+};
+
+type CitiesLoadStatus = 'loading' | 'ready' | 'error';
+
 type LeadScoreItem = {
   question: string;
   answer: string;
@@ -629,6 +655,145 @@ const DDDS_VALIDOS = [
   81, 82, 83, 84, 85, 86, 87, 88, 89,
   91, 92, 93, 94, 95, 96, 97, 98, 99
 ];
+
+const BRAZILIAN_CITIES_ENDPOINT = 'https://servicodados.ibge.gov.br/api/v1/localidades/municipios?orderBy=nome';
+const BRAZILIAN_CITIES_CACHE_KEY = 'cativa:brazilian-cities:v1';
+const BRAZILIAN_CITIES_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const CITY_SUGGESTIONS_LIMIT = 80;
+
+let brazilianCitiesRequest: Promise<BrazilianCity[]> | null = null;
+
+const normalizeCityName = (value: string) => {
+  return value
+    .trim()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
+};
+
+const getIbgeCityState = (city: IbgeCity) => {
+  return (
+    city.microrregiao?.mesorregiao?.UF?.sigla ||
+    city['regiao-imediata']?.['regiao-intermediaria']?.UF?.sigla ||
+    ''
+  ).toUpperCase();
+};
+
+const mapIbgeCities = (cities: IbgeCity[]): BrazilianCity[] => {
+  return cities
+    .map((city) => {
+      const name = city.nome?.trim() || '';
+      const state = getIbgeCityState(city);
+
+      if (!name || !state) return null;
+
+      return {
+        name,
+        state,
+        normalizedName: normalizeCityName(name)
+      };
+    })
+    .filter((city): city is BrazilianCity => Boolean(city));
+};
+
+const getCachedBrazilianCities = () => {
+  if (typeof window === 'undefined') return null;
+
+  try {
+    const storedCities = window.localStorage.getItem(BRAZILIAN_CITIES_CACHE_KEY);
+    if (!storedCities) return null;
+
+    const parsed = JSON.parse(storedCities) as { updatedAt?: number; cities?: BrazilianCity[] };
+    const cacheIsFresh = typeof parsed.updatedAt === 'number' && Date.now() - parsed.updatedAt < BRAZILIAN_CITIES_CACHE_TTL_MS;
+    const cacheIsValid = Array.isArray(parsed.cities) && parsed.cities.length > 0;
+
+    return cacheIsFresh && cacheIsValid ? parsed.cities : null;
+  } catch {
+    return null;
+  }
+};
+
+const saveBrazilianCitiesCache = (cities: BrazilianCity[]) => {
+  if (typeof window === 'undefined') return;
+
+  try {
+    window.localStorage.setItem(
+      BRAZILIAN_CITIES_CACHE_KEY,
+      JSON.stringify({
+        updatedAt: Date.now(),
+        cities
+      })
+    );
+  } catch {
+    // Cache failure should not block the form validation.
+  }
+};
+
+const fetchBrazilianCities = async () => {
+  const cachedCities = getCachedBrazilianCities();
+  if (cachedCities) return cachedCities;
+
+  if (!brazilianCitiesRequest) {
+    brazilianCitiesRequest = fetch(BRAZILIAN_CITIES_ENDPOINT)
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`Erro ao carregar cidades brasileiras: ${response.status}`);
+        }
+
+        return response.json() as Promise<IbgeCity[]>;
+      })
+      .then((cities) => {
+        const mappedCities = mapIbgeCities(cities);
+        saveBrazilianCitiesCache(mappedCities);
+        return mappedCities;
+      })
+      .catch((error) => {
+        brazilianCitiesRequest = null;
+        throw error;
+      });
+  }
+
+  return brazilianCitiesRequest;
+};
+
+const validateBrazilianCity = (
+  cidade: string,
+  estado: string,
+  cities: BrazilianCity[],
+  citiesStatus: CitiesLoadStatus
+) => {
+  const normalizedCity = normalizeCityName(cidade);
+  const normalizedState = estado.trim().toUpperCase();
+
+  if (!normalizedCity) {
+    return { error: 'Informe a cidade.' };
+  }
+
+  if (citiesStatus === 'loading') {
+    return { error: 'Aguarde a lista de cidades carregar para validar este campo.' };
+  }
+
+  if (citiesStatus === 'error' || cities.length === 0) {
+    return { error: 'Não foi possível validar a cidade brasileira agora. Atualize a página e tente novamente.' };
+  }
+
+  const matchedCity = cities.find((city) => {
+    const sameName = city.normalizedName === normalizedCity;
+    const sameState = !normalizedState || city.state === normalizedState;
+    return sameName && sameState;
+  });
+
+  if (!matchedCity) {
+    return {
+      error: normalizedState
+        ? 'Informe uma cidade brasileira válida para o estado selecionado.'
+        : 'Informe o nome de uma cidade brasileira válida.'
+    };
+  }
+
+  return { city: matchedCity };
+};
 
 const leadScoreConfig = {
   lastUpdated: "2026-05-21T10:15:44.127Z",
@@ -1000,6 +1165,41 @@ const PartnershipForm = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submissionStatus, setSubmissionStatus] = useState<'qualified' | 'disqualified' | null>(null);
   const [formErrors, setFormErrors] = useState<FormErrors>({});
+  const [brazilianCities, setBrazilianCities] = useState<BrazilianCity[]>([]);
+  const [citiesStatus, setCitiesStatus] = useState<CitiesLoadStatus>('loading');
+
+  useEffect(() => {
+    let isActive = true;
+
+    fetchBrazilianCities()
+      .then((cities) => {
+        if (!isActive) return;
+        setBrazilianCities(cities);
+        setCitiesStatus('ready');
+      })
+      .catch((error) => {
+        console.error('Erro ao carregar cidades brasileiras:', error);
+        if (!isActive) return;
+        setCitiesStatus('error');
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
+
+  const cidadeOptions = useMemo(() => {
+    const selectedState = formData.estado.trim().toUpperCase();
+    const normalizedInput = normalizeCityName(formData.cidade);
+
+    return brazilianCities
+      .filter((city) => {
+        const sameState = !selectedState || city.state === selectedState;
+        const sameInput = !normalizedInput || city.normalizedName.includes(normalizedInput);
+        return sameState && sameInput;
+      })
+      .slice(0, CITY_SUGGESTIONS_LIMIT);
+  }, [brazilianCities, formData.cidade, formData.estado]);
 
   const updateFormData = <K extends keyof LeadFormData>(key: K, value: LeadFormData[K]) => {
     setFormData((current) => ({ ...current, [key]: value }));
@@ -1015,6 +1215,35 @@ const PartnershipForm = () => {
       delete next[field];
       return next;
     });
+  };
+
+  const setFieldError = (field: FormFieldName, message: string) => {
+    setFormErrors((current) => ({ ...current, [field]: message }));
+  };
+
+  const handleCityBlur = () => {
+    const validation = validateBrazilianCity(formData.cidade, formData.estado, brazilianCities, citiesStatus);
+
+    if ('error' in validation) {
+      setFieldError('cidade', validation.error);
+      return;
+    }
+
+    updateFormData('cidade', validation.city.name);
+  };
+
+  const handleStateChange = (estado: string) => {
+    updateFormData('estado', estado);
+
+    if (!formData.cidade.trim() || citiesStatus !== 'ready') return;
+
+    const validation = validateBrazilianCity(formData.cidade, estado, brazilianCities, citiesStatus);
+    if ('error' in validation) {
+      setFieldError('cidade', validation.error);
+      return;
+    }
+
+    updateFormData('cidade', validation.city.name);
   };
 
   const handleSegmentChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -1070,6 +1299,7 @@ const PartnershipForm = () => {
 
   const validateForm = () => {
     const errors: FormErrors = {};
+    const validatedFormData: LeadFormData = { ...formData };
     const order: FormFieldName[] = [
       'nome',
       'nomeLoja',
@@ -1110,7 +1340,13 @@ const PartnershipForm = () => {
       errors.cnpj = 'CNPJ inválido: informe os 14 dígitos do CNPJ.';
     }
 
-    if (!formData.cidade.trim()) errors.cidade = 'Informe a cidade.';
+    const cityValidation = validateBrazilianCity(formData.cidade, formData.estado, brazilianCities, citiesStatus);
+    if ('error' in cityValidation) {
+      errors.cidade = cityValidation.error;
+    } else {
+      validatedFormData.cidade = cityValidation.city.name;
+    }
+
     if (!formData.estado.trim()) errors.estado = 'Selecione o estado.';
     if (!formData.instagram.trim()) errors.instagram = 'Informe o Instagram da loja.';
     if (!formData.marcasAtuais.trim()) errors.marcasAtuais = 'Informe as marcas que vende hoje.';
@@ -1123,17 +1359,21 @@ const PartnershipForm = () => {
     const firstError = order.find((field) => errors[field]);
     if (firstError) focusField(firstError);
 
-    return !firstError;
+    if (firstError) return null;
+
+    setFormData(validatedFormData);
+    return validatedFormData;
   };
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
 
-    if (!validateForm()) {
+    const validatedFormData = validateForm();
+    if (!validatedFormData) {
       return;
     }
 
-    const leadScoreDetails = calculateLeadScore(formData);
+    const leadScoreDetails = calculateLeadScore(validatedFormData);
 
     console.log('Lead scoring detalhado:', leadScoreDetails);
 
@@ -1144,8 +1384,8 @@ const PartnershipForm = () => {
       return;
     }
 
-    const leadData = buildLeadPayload(formData, leadScoreDetails);
-    const webhookData = buildWebhookPayload(formData, leadScoreDetails);
+    const leadData = buildLeadPayload(validatedFormData, leadScoreDetails);
+    const webhookData = buildWebhookPayload(validatedFormData, leadScoreDetails);
 
     console.log('Dados preparados para Meta:', leadData);
     console.log('Dados preparados para webhook:', webhookData);
@@ -1309,11 +1549,21 @@ const PartnershipForm = () => {
                       required
                       value={formData.cidade}
                       onChange={(e) => updateFormData('cidade', e.target.value)}
+                      onBlur={handleCityBlur}
                       className={getFieldClassName('cidade')}
                       placeholder="Ex: São Paulo"
+                      list="cidade-brasileira-options"
+                      autoComplete="address-level2"
                       aria-invalid={!!formErrors.cidade}
                       aria-describedby={formErrors.cidade ? 'cidade-error' : undefined}
                     />
+                    <datalist id="cidade-brasileira-options">
+                      {cidadeOptions.map((city) => (
+                        <option key={`${city.state}-${city.name}`} value={city.name}>
+                          {city.state}
+                        </option>
+                      ))}
+                    </datalist>
                     {renderFieldError('cidade')}
                   </div>
                   <div data-field="estado">
@@ -1321,7 +1571,7 @@ const PartnershipForm = () => {
                     <select
                       required
                       value={formData.estado}
-                      onChange={(e) => updateFormData('estado', e.target.value)}
+                      onChange={(e) => handleStateChange(e.target.value)}
                       className={getFieldClassName('estado', 'cursor-pointer text-[#7F8080]')}
                       aria-invalid={!!formErrors.estado}
                       aria-describedby={formErrors.estado ? 'estado-error' : undefined}
