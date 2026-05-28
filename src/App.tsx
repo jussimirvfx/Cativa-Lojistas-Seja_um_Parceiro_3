@@ -865,6 +865,8 @@ const leadScoreConfig = {
   ]
 };
 
+const estadosDropdownOptions = [...leadScoreConfig.stateConfig.priorityStates].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+
 const getTelefoneNumerosLocais = (telefone: string) => {
   const numeros = telefone.replace(/\D/g, '');
   return numeros.length > 11 && numeros.startsWith('55') ? numeros.slice(2, 13) : numeros.slice(0, 11);
@@ -1575,7 +1577,7 @@ const PartnershipForm = () => {
                       aria-describedby={formErrors.estado ? 'estado-error' : undefined}
                     >
                       <option value="">Selecionar</option>
-                      {leadScoreConfig.stateConfig.priorityStates.map((uf) => (
+                      {estadosDropdownOptions.map((uf) => (
                         <option key={uf} value={uf}>{uf}</option>
                       ))}
                     </select>
