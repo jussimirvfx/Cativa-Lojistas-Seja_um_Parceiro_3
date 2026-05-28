@@ -659,7 +659,8 @@ const DDDS_VALIDOS = [
 const BRAZILIAN_CITIES_ENDPOINT = 'https://servicodados.ibge.gov.br/api/v1/localidades/municipios?orderBy=nome';
 const BRAZILIAN_CITIES_CACHE_KEY = 'cativa:brazilian-cities:v1';
 const BRAZILIAN_CITIES_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-const CITY_SUGGESTIONS_LIMIT = 80;
+const CITY_SUGGESTIONS_LIMIT = 8;
+const CITY_SUGGESTIONS_MIN_CHARS = 2;
 
 let brazilianCitiesRequest: Promise<BrazilianCity[]> | null = null;
 
@@ -1167,6 +1168,7 @@ const PartnershipForm = () => {
   const [formErrors, setFormErrors] = useState<FormErrors>({});
   const [brazilianCities, setBrazilianCities] = useState<BrazilianCity[]>([]);
   const [citiesStatus, setCitiesStatus] = useState<CitiesLoadStatus>('loading');
+  const [showCitySuggestions, setShowCitySuggestions] = useState(false);
 
   useEffect(() => {
     let isActive = true;
@@ -1188,18 +1190,26 @@ const PartnershipForm = () => {
     };
   }, []);
 
-  const cidadeOptions = useMemo(() => {
+  const cidadeSuggestions = useMemo(() => {
     const selectedState = formData.estado.trim().toUpperCase();
     const normalizedInput = normalizeCityName(formData.cidade);
 
-    return brazilianCities
-      .filter((city) => {
-        const sameState = !selectedState || city.state === selectedState;
-        const sameInput = !normalizedInput || city.normalizedName.includes(normalizedInput);
-        return sameState && sameInput;
-      })
-      .slice(0, CITY_SUGGESTIONS_LIMIT);
-  }, [brazilianCities, formData.cidade, formData.estado]);
+    if (
+      citiesStatus !== 'ready' ||
+      !selectedState ||
+      normalizedInput.length < CITY_SUGGESTIONS_MIN_CHARS
+    ) {
+      return [];
+    }
+
+    const stateCities = brazilianCities.filter((city) => city.state === selectedState);
+    const startsWithInput = stateCities.filter((city) => city.normalizedName.startsWith(normalizedInput));
+    const includesInput = stateCities.filter((city) => {
+      return !city.normalizedName.startsWith(normalizedInput) && city.normalizedName.includes(normalizedInput);
+    });
+
+    return [...startsWithInput, ...includesInput].slice(0, CITY_SUGGESTIONS_LIMIT);
+  }, [brazilianCities, citiesStatus, formData.cidade, formData.estado]);
 
   const updateFormData = <K extends keyof LeadFormData>(key: K, value: LeadFormData[K]) => {
     setFormData((current) => ({ ...current, [key]: value }));
@@ -1223,6 +1233,7 @@ const PartnershipForm = () => {
 
   const handleCityBlur = () => {
     const validation = validateBrazilianCity(formData.cidade, formData.estado, brazilianCities, citiesStatus);
+    setShowCitySuggestions(false);
 
     if ('error' in validation) {
       setFieldError('cidade', validation.error);
@@ -1232,8 +1243,19 @@ const PartnershipForm = () => {
     updateFormData('cidade', validation.city.name);
   };
 
+  const handleCityChange = (value: string) => {
+    updateFormData('cidade', value);
+    setShowCitySuggestions(true);
+  };
+
+  const handleCitySuggestionSelect = (city: BrazilianCity) => {
+    updateFormData('cidade', city.name);
+    setShowCitySuggestions(false);
+  };
+
   const handleStateChange = (estado: string) => {
     updateFormData('estado', estado);
+    setShowCitySuggestions(false);
 
     if (!formData.cidade.trim() || citiesStatus !== 'ready') return;
 
@@ -1306,8 +1328,8 @@ const PartnershipForm = () => {
       'telefone',
       'email',
       'cnpj',
-      'cidade',
       'estado',
+      'cidade',
       'instagram',
       'marcasAtuais',
       'storeType',
@@ -1542,30 +1564,6 @@ const PartnershipForm = () => {
                 </div>
 
                 <div className="grid md:grid-cols-2 gap-6">
-                  <div data-field="cidade">
-                    <label className="text-sm font-bold text-[#7F8080] block mb-2">Cidade *</label>
-                    <input
-                      type="text"
-                      required
-                      value={formData.cidade}
-                      onChange={(e) => updateFormData('cidade', e.target.value)}
-                      onBlur={handleCityBlur}
-                      className={getFieldClassName('cidade')}
-                      placeholder="Ex: São Paulo"
-                      list="cidade-brasileira-options"
-                      autoComplete="address-level2"
-                      aria-invalid={!!formErrors.cidade}
-                      aria-describedby={formErrors.cidade ? 'cidade-error' : undefined}
-                    />
-                    <datalist id="cidade-brasileira-options">
-                      {cidadeOptions.map((city) => (
-                        <option key={`${city.state}-${city.name}`} value={city.name}>
-                          {city.state}
-                        </option>
-                      ))}
-                    </datalist>
-                    {renderFieldError('cidade')}
-                  </div>
                   <div data-field="estado">
                     <label className="text-sm font-bold text-[#7F8080] block mb-2">Em qual estado está localizado? *</label>
                     <select
@@ -1582,6 +1580,49 @@ const PartnershipForm = () => {
                       ))}
                     </select>
                     {renderFieldError('estado')}
+                  </div>
+                  <div data-field="cidade" className="relative">
+                    <label className="text-sm font-bold text-[#7F8080] block mb-2">Cidade *</label>
+                    <input
+                      type="text"
+                      required
+                      value={formData.cidade}
+                      onChange={(e) => handleCityChange(e.target.value)}
+                      onFocus={() => setShowCitySuggestions(true)}
+                      onBlur={handleCityBlur}
+                      className={getFieldClassName('cidade')}
+                      placeholder="Ex: São Paulo"
+                      autoComplete="address-level2"
+                      role="combobox"
+                      aria-autocomplete="list"
+                      aria-expanded={showCitySuggestions && cidadeSuggestions.length > 0}
+                      aria-controls="cidade-suggestions"
+                      aria-invalid={!!formErrors.cidade}
+                      aria-describedby={formErrors.cidade ? 'cidade-error' : undefined}
+                    />
+                    {showCitySuggestions && cidadeSuggestions.length > 0 && (
+                      <div
+                        id="cidade-suggestions"
+                        role="listbox"
+                        className="absolute left-0 right-0 top-full z-40 mt-2 max-h-56 overflow-y-auto rounded-xl border border-stone-200 bg-white shadow-xl"
+                      >
+                        {cidadeSuggestions.map((city) => (
+                          <button
+                            key={`${city.state}-${city.name}`}
+                            type="button"
+                            role="option"
+                            className="block w-full px-4 py-3 text-left text-sm font-semibold text-[#7F8080] hover:bg-stone-50 focus:bg-stone-50 focus:outline-none"
+                            onPointerDown={(event) => {
+                              event.preventDefault();
+                              handleCitySuggestionSelect(city);
+                            }}
+                          >
+                            {city.name}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {renderFieldError('cidade')}
                   </div>
                 </div>
 
